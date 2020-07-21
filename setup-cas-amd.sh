@@ -5,7 +5,7 @@ mkdir /home/ec2-user/amd/recordings/
 
 bash Miniconda3-latest-Linux-x86_64.sh -b -p /home/ec2-user/miniconda3
 /home/ec2-user/miniconda3/bin/conda init
-yes "" | /home/ec2-user/miniconda3/bin/conda install librosa
+yes "" | /home/ec2-user/miniconda3/bin/conda install -c conda-forge librosa
 yes "" | /home/ec2-user/miniconda3/bin/conda install numpy
 
 cp $DIR/* /home/ec2-user/amd/
