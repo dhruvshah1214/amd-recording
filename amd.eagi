@@ -1,6 +1,6 @@
 #!/home/ec2-user/miniconda3/bin/python -u
 
-#print("exec VERBOSE \"Running PYTHON AMD script...\"")
+#print("exec VERBOSE \"Running PYTHON AMD RECORDING script...\"")
 
 import time
 import datetime
@@ -10,6 +10,7 @@ import numpy as np
 import math
 
 now = datetime.datetime.now()
+RECORD_DURATION = 2.5
 
 #print("exec VERBOSE \"Initializing program...\"")
 
@@ -60,14 +61,14 @@ def predict(x):
 
 #print("exec VERBOSE \"Starting AMD PYTHON detector at " + datetime.datetime.now().strftime('%b-%d-%I%M%p-%G') + "...\"")
 
-print("STREAM FILE beep \"\"")
+print("STREAM FILE privacy-thankyou \"\"")
 audio_fh = open("/dev/fd/3", "rb")
 
 audio_length = 0.0
 audio_timeseries = []
 
 start_time = time.time()
-while time.time() - start_time < 2.2:
+while time.time() - start_time < 5.0:
     buffer_read_size = int(prediction_window * 2 * 8000.0) if audio_length == 0.0 else int(prediction_interval * 2 * 8000)
     buffer_audio = audio_fh.read(buffer_read_size)
     read_length = len(buffer_audio)/(2.0*8000.0)
@@ -98,6 +99,9 @@ while time.time() - start_time < 2.2:
     y_hat = np.round(predict(X).reshape(3,), 2).astype(np.float32)
 
     print("exec VERBOSE \"RECEIVED PREDICTION VECTOR " + str(audio_length) + ":" + str(y_hat) + "\"")
+
+    if len(X_audio) > int(0.9 * 8000 * RECORD_DURATION):
+        break
 
 print("SET VARIABLE AMD_RESULT " + str(2))
 X_audio = np.concatenate(audio_timeseries)
