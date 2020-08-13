@@ -81,7 +81,7 @@ while time.time() - start_time < 5.0:
     if X_audio.shape[0] > PREDICTION_BUFFER_LENGTH:
         X_audio = X_audio[-PREDICTION_BUFFER_LENGTH:]
 
-    X_audio, index = librosa.effects.trim(X_audio, top_db=20, frame_length=800, hop_length=80)
+    X_audio, index = librosa.effects.trim(X_audio, top_db=20, frame_length=2000, hop_length=80)
 
     if get_rms(X_audio) < 1e-9:
         continue
@@ -105,6 +105,7 @@ while time.time() - start_time < 5.0:
 
 print("SET VARIABLE AMD_RESULT " + str(2))
 X_audio = np.concatenate(audio_timeseries)
+X_audio, _ = librosa.effects.trim(X_audio, top_db=20, frame_length=2000, hop_length=80)
 librosa.output.write_wav(f"/home/ec2-user/amd/recordings/recording_{now:%m-%d-%Y_%H-%M-%S}@{str(agi.env['agi_channel'].split('-', 1)[1].split('@', 1)[0])}.wav", X_audio, 8000)
 
 print("exec VERBOSE \"FINISHING AMD script at " + datetime.datetime.now().strftime('%b-%d-%I%M%p-%G') + "...\"")
