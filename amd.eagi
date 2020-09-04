@@ -1,50 +1,50 @@
 #!/home/ec2-user/miniconda3/bin/python -u
 
 #print("exec VERBOSE \"Running PYTHON AMD RECORDING script...\"")
-
+#
 import time
 import datetime
 from asterisk.agi import *
 import librosa
 import numpy as np
 import math
+import sys
 
 now = datetime.datetime.now()
 RECORD_DURATION = 2.5
 
-#print("exec VERBOSE \"Initializing program...\"")
-
-# const
 PREDICTION_BUFFER_LENGTH = 24000 # number of audio samples the prediction takes
-def melspec(librosa_audio):
-    return librosa.power_to_db(librosa.feature.melspectrogram(y=librosa_audio, sr=8000, n_fft=200, hop_length=80), ref=np.max).transpose()
+prediction_window = 1.5
+prediction_interval = 0.5
+prediction_runtime = 5.0
 
-def get_rms(audio):
-    int_timeseries = np.rint(32768.0 * audio).astype(np.int32)
-    squared_timeseries = np.square(int_timeseries).astype(np.float32)
-    scaled_square_timeseries = squared_timeseries / len(audio)
-    mean_square_timeseries = np.sum(scaled_square_timeseries)
-    rms = int(math.sqrt(mean_square_timeseries))
-    return rms
+def preprocess_apptware(audio):
+    return ""
 
-def get_dbfs(audio):
-    rms = get_rms(audio)
-    assert rms > 0, f"RMS <= 0: {rms}"
-    ratio = float(rms) / (2 ** 15)
-    return 20 * math.log(ratio, 10)
+def preprocess_dhruv(audio):
+    TARGET_DBFS = -20.0
+    WN_MAX_AMPLITUDE = 1e-3
 
-def apply_gain(audio, gain_db):
-    return np.clip(audio * (10 ** (float(gain_db) / 20.0)), -1.0, 1.0)
+    rms = int(math.sqrt(np.sum(np.square(np.rint(32768.0 * audio).astype(np.int32)).astype(np.float32) / len(audio))))
+    dbfs = 20 * math.log(float(rms) / (2 ** 15), 10)
+    change_in_dBFS = TARGET_DBFS - dbfs
+    normalized_audio = np.clip(audio * (10 ** (float(change_in_dBFS) / 20.0)), -1.0, 1.0)
 
-def normalize(audio, target_dbfs=-20):
-    change_in_dBFS = target_dbfs - get_dbfs(audio)
-    return apply_gain(audio, change_in_dBFS)
+    filler_length = PREDICTION_BUFFER_LENGTH - len(audio)
+    whitenoise_filler = np.random.randn(filler_length).astype(np.float32) * (0.1 + 0.9 * np.random.rand()) * WN_MAX_AMPLITUDE
+
+    x_audio = np.append(normalized_audio, whitenoise_filler)
+    x_features = librosa.power_to_db(librosa.feature.melspectrogram(y=x_audio, sr=8000, n_fft=400, hop_length=80), ref=np.max).transpose()
+
+    assert x_features.shape == (301, 128)
+    x_features = x_features.reshape(1, 301, 128)
+    return x_features
+
+#print("exec VERBOSE \"Reading EAGI inputs...\"")
 
 agi = AGI()
 
-prediction_window = 1.5 #args.pred_window
-prediction_interval = 0.5 #args.pred_interval
-#print("exec VERBOSE \"Starting AMD PYTHON v2 script at " + datetime.datetime.now().strftime('%b-%d-%I%M%p-%G') + "...\"")
+#print("exec VERBOSE \"Loading model library...\"")
 
 libmodel = np.ctypeslib.load_library('libmodel.so', '/home/ec2-user/amd/')
 libmodel.run.argtypes = [
@@ -61,42 +61,42 @@ def predict(x):
 
 #print("exec VERBOSE \"Starting AMD PYTHON detector at " + datetime.datetime.now().strftime('%b-%d-%I%M%p-%G') + "...\"")
 
-print("STREAM FILE privacy-thankyou \"\"")
 audio_fh = open("/dev/fd/3", "rb")
 
 audio_length = 0.0
 audio_timeseries = []
 
 start_time = time.time()
-while time.time() - start_time < 5.0:
+while time.time() - start_time < prediction_runtime:
     buffer_read_size = int(prediction_window * 2 * 8000.0) if audio_length == 0.0 else int(prediction_interval * 2 * 8000)
-    buffer_audio = audio_fh.read(buffer_read_size)
+    buffer_audio = b''
+    # read `buffer_read_size` bytes from fd3, with a prediction_runtime timeout.
+    while len(buffer_audio) < buffer_read_size and (time.time() - start_time) < prediction_runtime:
+        buffer_audio += os.read(audio_fh.fileno(), buffer_read_size)
+    if len(buffer_audio) < buffer_read_size:
+        audio_fh.close()
+        sys.exit()
+
     read_length = len(buffer_audio)/(2.0*8000.0)
     audio_length += read_length
 
     frame = librosa.util.buf_to_float(buffer_audio, dtype=np.float32)
     audio_timeseries.append(frame)
 
-    X_audio = np.concatenate(audio_timeseries)
+    ts = np.concatenate(audio_timeseries)
+    X_audio, index = librosa.effects.trim(ts, top_db=12.5, frame_length=2000, hop_length=80)
+
     if X_audio.shape[0] > PREDICTION_BUFFER_LENGTH:
         X_audio = X_audio[-PREDICTION_BUFFER_LENGTH:]
-
-    X_audio, index = librosa.effects.trim(X_audio, top_db=20, frame_length=2000, hop_length=80)
-
     if get_rms(X_audio) < 1e-9:
-        continue
-    if len(X_audio) < 8000:
-        continue
+       continue
+    if (len(ts) - index[0]) < 8000:
+       continue
 
-    X_audio = normalize(X_audio)
-
-    X_audio = np.append(X_audio, np.zeros((PREDICTION_BUFFER_LENGTH - X_audio.shape[0],), dtype=np.float32))
-    X = melspec(X_audio)
+    X = preprocess_dhruv(X_audio)
 
     # predict model on X
-    assert X.shape == (301, 128)
-    X = X.reshape(1, 301, 128)
-    y_hat = np.round(predict(X).reshape(3,), 2).astype(np.float32)
+    y_hat = np.round(predict(X)[0], 2).astype(np.float32)
 
     print("exec VERBOSE \"RECEIVED PREDICTION VECTOR " + str(audio_length) + ":" + str(y_hat) + "\"")
 
@@ -104,9 +104,10 @@ while time.time() - start_time < 5.0:
         break
 
 print("SET VARIABLE AMD_RESULT " + str(2))
+
 X_audio = np.concatenate(audio_timeseries)
 X_audio, _ = librosa.effects.trim(X_audio, top_db=20, frame_length=2000, hop_length=80)
 librosa.output.write_wav(f"/home/ec2-user/amd/recordings/recording_{now:%m-%d-%Y_%H-%M-%S}@{str(agi.env['agi_channel'].split('-', 1)[1].split('@', 1)[0])}.wav", X_audio, 8000)
 
-print("exec VERBOSE \"FINISHING AMD script at " + datetime.datetime.now().strftime('%b-%d-%I%M%p-%G') + "...\"")
 audio_fh.close()
+#print("exec VERBOSE \"FINISHING AMD script at " + datetime.datetime.now().strftime('%b-%d-%I%M%p-%G') + "...\"")
