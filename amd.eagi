@@ -21,9 +21,15 @@ prediction_runtime = 5.0
 def preprocess_apptware(audio):
     return ""
 
-def preprocess_dhruv(audio):
+def preprocess_dhruv(audio, index):
     TARGET_DBFS = -20.0
     WN_MAX_AMPLITUDE = 1e-3
+
+    if audio.shape[0] > PREDICTION_BUFFER_LENGTH:
+        audio = audio[-PREDICTION_BUFFER_LENGTH:]
+
+    if (len(audio) - index[0]) < 8000:
+       return None
 
     rms = int(math.sqrt(np.sum(np.square(np.rint(32768.0 * audio).astype(np.int32)).astype(np.float32) / len(audio))))
     dbfs = 20 * math.log(float(rms) / (2 ** 15), 10)
@@ -86,14 +92,10 @@ while time.time() - start_time < prediction_runtime:
     ts = np.concatenate(audio_timeseries)
     X_audio, index = librosa.effects.trim(ts, top_db=12.5, frame_length=2000, hop_length=80)
 
-    if X_audio.shape[0] > PREDICTION_BUFFER_LENGTH:
-        X_audio = X_audio[-PREDICTION_BUFFER_LENGTH:]
-    if get_rms(X_audio) < 1e-9:
-       continue
-    if (len(ts) - index[0]) < 8000:
-       continue
+    X = preprocess_dhruv(X_audio, index)
 
-    X = preprocess_dhruv(X_audio)
+    if X is None:
+        continue
 
     # predict model on X
     y_hat = np.round(predict(X)[0], 2).astype(np.float32)
