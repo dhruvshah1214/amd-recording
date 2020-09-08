@@ -9,6 +9,7 @@ import librosa
 import numpy as np
 import math
 import sys
+import os
 
 now = datetime.datetime.now()
 RECORD_DURATION = 2.5
@@ -66,9 +67,11 @@ def predict(x):
 
 agi = AGI()
 
-#print("exec VERBOSE \"Starting AMD PYTHON detector at " + datetime.datetime.now().strftime('%b-%d-%I%M%p-%G') + "...\"")
+print("exec VERBOSE \"Starting AMD PYTHON detector at " + datetime.datetime.now().strftime('%b-%d-%I%M%p-%G') + "...\"")
 
-audio_fh = open("/dev/fd/3", "rb")
+#audio_fd = os.open("/dev/fd/3", os.O_RDONLY)
+
+print("exec VERBOSE \"Opened FD!\"")
 
 audio_length = 0.0
 audio_timeseries = []
@@ -79,9 +82,10 @@ while time.time() - start_time < prediction_runtime:
     buffer_audio = b''
     # read `buffer_read_size` bytes from fd3, with a prediction_runtime timeout.
     while len(buffer_audio) < buffer_read_size and (time.time() - start_time) < prediction_runtime:
-        buffer_audio += os.read(audio_fh.fileno(), buffer_read_size)
+        buffer_audio += os.read(3, buffer_read_size)
     if len(buffer_audio) < buffer_read_size:
-        audio_fh.close()
+        #audio_fh.close()
+        #os.close(audio_fd)
         sys.exit()
 
     read_length = len(buffer_audio)/(2.0*8000.0)
@@ -112,5 +116,6 @@ X_audio = np.concatenate(audio_timeseries)
 X_audio, _ = librosa.effects.trim(X_audio, top_db=20, frame_length=2000, hop_length=80)
 librosa.output.write_wav(f"/home/ec2-user/amd/recordings/recording_{now:%m-%d-%Y_%H-%M-%S}@{str(agi.env['agi_channel'].split('-', 1)[1].split('@', 1)[0])}.wav", X_audio, 8000)
 
-audio_fh.close()
+#audio_fh.close()
+#os.close(audio_fd)
 #print("exec VERBOSE \"FINISHING AMD script at " + datetime.datetime.now().strftime('%b-%d-%I%M%p-%G') + "...\"")
